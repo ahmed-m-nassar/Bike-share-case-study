@@ -1,0 +1,331 @@
+---
+title: "Bike share case study"
+output: html_notebook
+---
+
+# Business task
+
+Our business task is to find out how members and casual riders use Cyclistic bikes differently to design a marketing strategy to convert casual riders to members.
+
+We will analyze our data to find out these differences between members and casual riders:
+
+-   Types of bikes they use.
+
+-   How much do they use it in different week days.
+
+-   How much do they use it in different hours.
+
+-   How much do they use it in different months.
+
+-   The duration of each bike ride.
+
+# Preparing our data
+
+-   We will use Cyclistic's historical trip data for 12 months starting from **( 2022 - 05 To 2021 - 05).**
+
+-   The data was downloaded from (<https://divvy-tripdata.s3.amazonaws.com/index.html>) which is a public data and was made available by **Motivate International Inc.**
+
+-   The data of the 12 months were added in 1 file ("2021-2022-divvvy-tripdata.csv")
+
+-   The data will allow us to answer our business task as we will have these information about every trip
+
+    -   The type of the bike used
+
+    -   The starting date and time
+
+    -   The ending date and time
+
+    -   The type of the cyclist **(member or casual)**
+
+    -   The starting location of the trip
+
+    -   The ending location of the trip
+
+To prepare and load our data we will load the needed libraries first
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#installing needed packages
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("ggplot2")
+
+#loading needed libraries
+library("dplyr")
+library("tidyr")
+library(lubridate)
+library(ggplot2)
+library(scales)
+```
+
+Now we will load our data
+
+```{r}
+trip_data = read.csv("./data/2021-2022-divvvy-tripdata.csv")
+```
+
+Now we will filter some unneeded columns which are irrelevant to our business task
+
+```{r}
+trip_data<-trip_data %>% 
+  select(-c(start_station_name ,
+            start_station_id ,
+            end_station_name ,
+            end_station_id))
+```
+
+# Processing our data
+
+Now we will process our data to ensure that it\`s ready for cleaning
+
+As we can see The **"started_at" , "ended_at"** columns are being identified as characters
+
+```{r}
+str(trip_data)
+```
+
+we will convert **"started_at" , "ended_at"** columns to POSIXct objects as it will make it easier to manipulate them as date and time
+
+```{r}
+started_at <- as.POSIXct(trip_data$started_at, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+ended_at <- as.POSIXct(trip_data$ended_at, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+```
+
+```{r}
+trip_data <- subset (trip_data, select = -c(started_at,ended_at))
+trip_data <- cbind(trip_data , started_at,ended_at) 
+```
+
+```{r}
+rm(started_at)
+rm(ended_at)
+```
+
+```{r}
+str(trip_data)
+```
+
+Now we will check for data that is logically wrong .
+
+We will filter rides that has starting time \> end time
+
+```{r}
+trip_data <- filter(trip_data , started_at < ended_at)
+```
+
+Now we will check for duplicate data
+
+```{r}
+n_distinct(trip_data$ride_id)
+```
+
+As we can see from the results the number of distinct values is equal to the count of original values so there are no duplicate data
+
+Now we will check empty cells
+
+```{r}
+sum(is.na(trip_data))
+
+trip_data <- drop_na(trip_data)
+
+sum(is.na(trip_data))
+```
+
+As we can see the summation of NA values is equal to 0 so there are no empty cells
+
+Now we will remove the trips with lat and long outside chicago
+
+```{r}
+#chicago lat and long limits
+#42.007759 , -87.933886
+#41.646346 , -87.527203
+trip_data <- filter(trip_data ,
+                         start_lat <= 42.007759 & start_lat >= 41.646346 &
+                         end_lat <= 42.007759 & end_lat >= 41.646346 &
+                         start_lng <= -87.527203 & start_lng >= -87.933886 &
+                         end_lng <= -87.527203 & end_lng >= -87.933886 
+                           )
+
+
+```
+
+# Analyzing and visualizing our data
+
+Now we want to analyze our data to find insights about about our business task
+
+First we will see the types of bikes the members and casual riders use
+
+```{r}
+#No members use docked bikes
+ride_type <- trip_data %>%
+    group_by(rideable_type , member_casual) %>%
+    summarize(count = n())
+
+head(ride_type)
+```
+
+```{r}
+ggplot(data = ride_type ,  aes(rideable_type , count , fill = member_casual)) +
+  
+geom_bar(stat = "identity",position = "dodge") +
+  
+labs(y= "Number of riders", x = "Ride type" , title = "Count of rides vs Ride type for each membership type" ,subtitle = "The graph shows the number of members and casual riders \n in each ride type") +
+  
+scale_y_continuous(labels = comma) +
+  
+theme_bw() + 
+
+theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  
+annotate("text" , x = "docked_bike" , y = 500000 , label = "only casual riders \n use docked bike")
+
+```
+
+As we can see from the graph both members and casual riders use classic and electric bikes , but when it comes to docked bikes only casual riders use it.
+
+Now we will explore how members and casual riders use bikes in different months of the year.
+
+```{r}
+"1-it shows that Number of rides increase in these months  5 , 6 , 7 , 8 , 9
+"
+month_of_trip_df <- trip_data %>%
+    group_by(month = format(started_at , format = "%m") , member_casual) %>%
+    summarize(count = n())
+View(month_of_trip_df)
+```
+
+```{r}
+month_of_trip_df$month <- as.numeric(as.character(month_of_trip_df$month))
+
+ggplot(data = month_of_trip_df , aes(x= month , y=count , color = member_casual)) +
+geom_point(size = 5 )+
+  
+geom_line()+
+  
+theme_minimal()+
+  
+scale_x_continuous(breaks = round(seq(min(month_of_trip_df$month), max(month_of_trip_df$month), by = 1),1)) +
+  
+scale_y_continuous(labels = comma) +
+
+theme_bw() +
+  
+theme(panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  
+labs(y= "Number of riders", x = "Month" , title = "Count of rides vs month of the trip for each membership type" ,subtitle = "The graph shows the number of members and casual riders \n in each month of year") 
+```
+
+As we can see the number of rides increase significantly in months 5 -\> 9
+
+Now we will see how members and casual riders use bikes in different days of week
+
+```{r}
+#it shows that members get memberships to commute to work 
+#members are more than commuters in all week days except satrday and sunday which are the off days 
+day_of_trip <- wday(trip_data$started_at)
+
+day_of_trip <- case_when(
+  day_of_trip == 1 ~ "sunday",
+  day_of_trip == 2 ~ "monday",
+  day_of_trip == 3 ~ "tuesday",
+  day_of_trip == 4 ~ "wednesday",
+  day_of_trip == 5 ~ "thursday",
+  day_of_trip == 6 ~ "friday",
+  day_of_trip == 7 ~ "saturday"
+)
+
+day_of_trip_df <- trip_data %>% 
+  select( c(ride_id , member_casual) )
+
+day_of_trip_df <- cbind(day_of_trip_df , day_of_trip)
+
+day_of_trip_df <- day_of_trip_df %>%
+    group_by(day_of_trip , member_casual) %>%
+    summarize(count = n())
+
+
+View(day_of_trip_df)
+```
+
+```{r}
+day_of_trip_df$day_of_trip <- factor(day_of_trip_df$day_of_trip , levels = c('saturday' , 'sunday' ,'monday' , 'tuesday' , 'wednesday' , 'thursday' , 'friday'))
+day_of_trip_df$alpha <- as.factor(ifelse(day_of_trip_df$day_of_trip == "saturday" | day_of_trip_df$day_of_trip == "sunday", 0.5 ,  1))
+
+ggplot(data = day_of_trip_df ,  aes(day_of_trip , count , fill = member_casual ,  width = 0.6  ) ) +
+  
+guides(alpha = FALSE)+
+  
+geom_bar(stat = "identity" ,position = "dodge") +
+  
+theme_bw() +
+  
+theme(panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+  
+scale_y_continuous(labels = comma) +
+  
+labs(y= "Number of riders", x = "Week day" , title = "Count of rides vs day of the trip for each membership type" ,subtitle = "The graph shows the number of members and casual riders \n in each day of week") 
+```
+
+As we can see from the graph at workdays members use more bikes than casual riders , but this is not the case at Saturday and Sunday (which might indicate that members use bikes more to commute to work or school).
+
+Now we will see how the members and casual riders use the bikes differently in different hours
+
+```{r}
+#It shows that  the members use the bikes more at the start work hours (5 ~ 10 )
+#and at end work hours (16~19)
+hour_of_trip_df <- trip_data %>%
+    group_by(hour = format(started_at , format = "%H"), member_casual) %>%
+    summarize(count = n())
+View(hours_of_trip_df)
+```
+
+```{r}
+hour_of_trip_df$hour <- as.numeric(as.character(hour_of_trip_df$hour))
+
+ggplot(data = hour_of_trip_df , aes(x= hour , y=count , color = member_casual)) +
+geom_point(size = 5 )+
+  
+geom_line()+
+  
+theme_minimal()+
+
+theme_bw() +
+  
+theme(panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+      
+scale_x_continuous(breaks = round(seq(min(hour_of_trip_df$hour), max(hour_of_trip_df$hour), by = 1),1)) +
+  
+annotate("rect", xmin = 4, xmax = 11, ymin = 10000, ymax = 240000,
+           alpha = .1,fill = "blue") +
+  
+annotate("rect", xmin = 15, xmax = 19, ymin = 210000, ymax = 400000,
+           alpha = .1,fill = "blue") +
+  
+scale_y_continuous(labels = comma) +
+  
+labs(y= "Number of riders", x = "Hour" , title = "Count of rides vs The hour of the trip for each membership type" ,subtitle = "The graph shows the number of members and casual riders \n in each hour of day") 
+```
+
+As we can see members use bikes more in these hours **(5 -\> 10)** and **(15 -\> 19)** which are before and after work hours , this supports that members use the bikes to commute to work .
+
+# Important findings
+
+-   Casual riders use docked bikes and Members don\`t
+
+-   Significant increase In the number of riders for both types in month 5 -\> 9 
+
+-   Members rides are significantly Higher than casual rides on **workdays (Monday-\> Friday)**
+
+-   At weekends **(Saturday , Sunday)** we notice a significant increase in casual Rides
+
+-   Members rides are significantly Higher than casual rides before and after work hours
+
+# Recommendations 
+
+-   We can explore if the members use their bikes to go to work places or study places on work hours and workdays using  longitude and latitude information
+
+-   We can explore why casual riders use docked bikes and members don\`t
+
+-   Make more promotions on annual memberships during months **5 -\> 9** and weekends as we can see the number of casual riders increase during this time .
+
+-   Make promotions on annual membership to casual riders who use their bikes to **commute** . And use the information we found out from the analysis to find the right timing for the promotion.
